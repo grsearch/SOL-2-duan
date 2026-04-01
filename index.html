@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOL 二段监控 Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap');
+  
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg-0: #060a14; --bg-1: #0a0f1e; --bg-2: #0c1222; --bg-3: #0f172a;
+    --border: #1e293b; --border-2: #334155;
+    --text-0: #f1f5f9; --text-1: #e2e8f0; --text-2: #94a3b8; --text-3: #64748b; --text-4: #475569;
+    --cyan: #22d3ee; --cyan-dim: #0ea5e9; --green: #22c55e; --red: #ef4444;
+    --orange: #f97316; --yellow: #f59e0b; --purple: #a78bfa; --blue: #3b82f6;
+    --blue-light: #7dd3fc; --purple-light: #c4b5fd;
+  }
+  body {
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--bg-0); color: var(--text-1); min-height: 100vh;
+  }
+  ::-webkit-scrollbar { width:6px; height:6px; }
+  ::-webkit-scrollbar-track { background: var(--bg-2); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius:3px; }
+
+  /* ---- Header ---- */
+  .header {
+    position: sticky; top:0; z-index:10;
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 14px 24px;
+    background: linear-gradient(180deg, var(--bg-2) 0%, var(--bg-0) 100%);
+    border-bottom: 1px solid var(--border);
+  }
+  .header-left { display:flex; align-items:center; gap:14px; }
+  .logo {
+    width:36px; height:36px; border-radius:8px;
+    background: linear-gradient(135deg, var(--cyan-dim), #8b5cf6);
+    display:flex; align-items:center; justify-content:center;
+    font-size:18px; font-weight:900; color:#fff;
+  }
+  .header-title { font-size:15px; font-weight:700; color:var(--text-0); letter-spacing:-0.02em; }
+  .header-sub { font-size:10px; color:var(--text-3); margin-top:2px; }
+  .header-right { display:flex; align-items:center; gap:14px; }
+  .search-input {
+    padding:7px 12px; background:var(--bg-3); border:1px solid var(--border-2);
+    border-radius:6px; color:var(--text-1); font-size:12px; width:180px;
+    outline:none; font-family:inherit;
+  }
+  .status-pill {
+    display:flex; align-items:center; gap:6px;
+    padding:6px 12px; border-radius:6px; font-size:11px;
+  }
+  .status-dot {
+    width:6px; height:6px; border-radius:50%;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+  .count-pill {
+    padding:6px 12px; border-radius:6px; font-size:12px;
+    background: rgba(14,165,233,0.08); border:1px solid rgba(14,165,233,0.19);
+    color: var(--blue-light);
+  }
+  .count-pill b { color:var(--cyan); }
+  .btn-add {
+    padding:7px 16px; border-radius:6px; border:none;
+    background: linear-gradient(135deg, var(--cyan-dim), #8b5cf6);
+    color:#fff; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit;
+  }
+  .btn-add:hover { filter: brightness(1.15); }
+
+  /* ---- Table ---- */
+  .table-wrap { padding:0 16px 60px; overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th {
+    padding:10px 12px; text-align:right; cursor:pointer; user-select:none;
+    color:var(--text-3); font-size:11px; font-weight:600; letter-spacing:0.05em;
+    text-transform:uppercase; white-space:nowrap;
+    border-bottom:1px solid var(--border);
+    position:sticky; top:52px; background:var(--bg-1); z-index:2;
+  }
+  th.active { color:var(--cyan); }
+  th.left { text-align:left; }
+  th.center { text-align:center; }
+  tr.coin-row { cursor:pointer; border-bottom:1px solid var(--bg-3); transition: background 0.15s; }
+  tr.coin-row:hover { background: var(--bg-2); }
+  tr.coin-row.expanded { background: var(--bg-3); border-bottom:none; }
+  td { padding:12px; text-align:right; }
+  td.left { text-align:left; }
+  td.center { text-align:center; }
+
+  /* ---- Symbol cell ---- */
+  .sym-cell { display:flex; align-items:center; gap:8px; }
+  .sym-icon {
+    width:28px; height:28px; border-radius:6px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:800; color:#fff;
+  }
+  .sym-name { font-size:13px; font-weight:700; color:var(--text-0); }
+  .sym-tags { font-size:9px; color:var(--text-3); font-weight:400; }
+
+  /* ---- Trend badge ---- */
+  .trend-badge {
+    display:inline-flex; align-items:center; gap:4px;
+    padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; font-family:monospace;
+  }
+  .trend-spike { background:rgba(124,45,18,0.5); border:1px solid rgba(220,38,38,0.38); color:#fca5a5; }
+  .trend-up    { background:rgba(20,83,45,0.5); border:1px solid rgba(22,163,74,0.38); color:#86efac; }
+  .trend-down  { background:rgba(127,29,29,0.5); border:1px solid rgba(220,38,38,0.25); color:#fca5a5; }
+  .trend-flat  { background:rgba(30,41,59,0.5); border:1px solid rgba(71,85,105,0.25); color:var(--text-2); }
+
+  /* ---- CA link ---- */
+  .ca-link {
+    color:var(--blue-light); text-decoration:none; font-size:11px;
+    padding:3px 8px; border-radius:4px;
+    background: rgba(14,165,233,0.06); border:1px solid rgba(14,165,233,0.12);
+  }
+  .ca-link:hover { background: rgba(14,165,233,0.14); }
+
+  /* ---- Delete btn ---- */
+  .btn-del {
+    background:transparent; border:1px solid rgba(127,29,29,0.25);
+    color:var(--red); cursor:pointer; border-radius:4px;
+    padding:3px 8px; font-size:11px; font-family:inherit; opacity:0.5;
+  }
+  .btn-del:hover { opacity:1; }
+
+  /* ---- Expanded detail ---- */
+  .detail-row td { background:var(--bg-2); border-bottom:2px solid var(--border); padding:0; }
+  .detail-inner { padding:16px 20px; display:flex; gap:24px; flex-wrap:wrap; }
+  .detail-left { flex:1 1 500px; }
+  .detail-right { flex:0 0 280px; }
+  .detail-title { font-size:12px; font-weight:600; color:var(--text-2); margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+  .detail-title small { font-size:10px; color:var(--text-3); }
+  .chart-box {
+    background:var(--bg-1); border-radius:8px; padding:12px; border:1px solid var(--border);
+  }
+  .metrics-grid {
+    background:var(--bg-1); border-radius:8px; padding:14px; border:1px solid var(--border);
+    display:grid; grid-template-columns:1fr 1fr; gap:10px 16px;
+  }
+  .metric-label { font-size:10px; color:var(--text-4); }
+  .metric-val { font-size:12px; font-weight:600; color:var(--text-1); }
+  .metric-val.pos { color:var(--green); }
+  .metric-val.neg { color:var(--red); }
+  .links-row { margin-top:12px; display:flex; gap:8px; flex-wrap:wrap; }
+  .ext-link {
+    font-size:10px; color:var(--blue-light); text-decoration:none;
+    padding:4px 10px; border-radius:4px;
+    background:rgba(14,165,233,0.06); border:1px solid rgba(14,165,233,0.12);
+  }
+  .ext-link:hover { background:rgba(14,165,233,0.14); }
+
+  /* ---- Empty state ---- */
+  .empty { text-align:center; padding:60px 20px; color:var(--text-4); }
+  .empty-icon { font-size:40px; margin-bottom:12px; }
+
+  /* ---- Footer ---- */
+  .footer {
+    position:fixed; bottom:0; left:0; right:0; padding:8px 24px;
+    background:var(--bg-2); border-top:1px solid var(--border);
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:10px; color:var(--text-4);
+  }
+
+  /* ---- Modal ---- */
+  .modal-bg {
+    position:fixed; inset:0; background:rgba(0,0,0,0.5); display:flex;
+    align-items:center; justify-content:center; z-index:1000; backdrop-filter:blur(4px);
+  }
+  .modal {
+    background:var(--bg-3); border:1px solid var(--border); border-radius:12px;
+    padding:28px; width:440px; max-width:90vw;
+  }
+  .modal h3 { margin-bottom:20px; font-size:16px; font-weight:600; color:var(--text-1); }
+  .modal label { display:block; font-size:12px; color:var(--text-2); margin-bottom:6px; }
+  .modal input {
+    width:100%; padding:10px 12px; background:var(--bg-3); border:1px solid var(--border-2);
+    border-radius:6px; color:var(--text-1); font-size:13px; font-family:monospace;
+    outline:none; margin-bottom:16px;
+  }
+  .modal-actions { display:flex; gap:12px; justify-content:flex-end; }
+  .btn-cancel {
+    padding:8px 20px; border-radius:6px; border:1px solid var(--border-2);
+    background:transparent; color:var(--text-2); cursor:pointer; font-size:13px; font-family:inherit;
+  }
+  .btn-confirm {
+    padding:8px 20px; border-radius:6px; border:none;
+    background:var(--cyan-dim); color:#fff; cursor:pointer; font-size:13px; font-weight:600; font-family:inherit;
+  }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+// ==================== 配置 ====================
+const API_BASE = location.origin;   // 同源, 由 monitor.py 提供
+const POLL_MS  = 5000;
+
+// ==================== State ====================
+let state = {
+  coins: [],
+  expandedCa: null,
+  sortField: 'current_heat_score',
+  sortAsc: false,
+  filter: '',
+  connected: false,
+  lastUpdate: null,
+  showModal: false,
+};
+
+// ==================== 格式化 ====================
+const fN = (n, d=0) => n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : n.toFixed(d);
+const fU = n => '$' + fN(n);
+const fP = n => (n >= 0 ? '+' : '') + n.toFixed(1) + '%';
+const fAge = h => h < 1 ? Math.floor(h*60)+'m' : h < 24 ? h.toFixed(1)+'h' : (h/24).toFixed(1)+'d';
+const tAgo = s => { if(!s) return '-'; const d=(Date.now()-new Date(s).getTime())/1000; return d<60?Math.floor(d)+'s ago':d<3600?Math.floor(d/60)+'m ago':Math.floor(d/3600)+'h ago'; };
+
+// ==================== API ====================
+async function fetchCoins() {
+  try {
+    const r = await fetch(API_BASE + '/api/coins');
+    if (!r.ok) throw 0;
+    const d = await r.json();
+    state.coins = d.coins || [];
+    state.connected = true;
+  } catch {
+    if (!state.connected && state.coins.length === 0) state.coins = mockCoins();
+  }
+  state.lastUpdate = new Date();
+  render();
+}
+
+async function deleteCoin(ca) {
+  if (state.connected) { try { await fetch(API_BASE+'/api/coins/'+ca, {method:'DELETE'}); } catch {} }
+  state.coins = state.coins.filter(c => c.contract_address !== ca);
+  render();
+}
+
+async function addCoin(ca, sym) {
+  if (state.connected) {
+    try { await fetch(API_BASE+'/api/coins', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({contract_address:ca, symbol:sym})}); } catch {}
+  }
+  state.showModal = false;
+  fetchCoins();
+}
+
+// ==================== Mock ====================
+function mockCoins() {
+  const syms = ['BONK','WIF','POPCAT','MEW','MYRO','BOME','SLERF','PENG'];
+  return syms.map((s,i) => {
+    const age=2+Math.random()*20, fdv=2e5+Math.random()*5e6, liq=5e4+Math.random()*5e5;
+    const vol=3e5+Math.random()*3e6, hs=100+Math.random()*5000;
+    const hh=[]; let p=hs*0.3;
+    for(let j=0;j<Math.min(Math.floor(age*4),30);j++){p=Math.max(10,p*(1+(Math.random()-0.45)*0.4));hh.push({heat_score:Math.round(p*10)/10,mentions:5+Math.floor(Math.random()*60),avg_eng:+(2+Math.random()*40).toFixed(2),kol_count:Math.floor(Math.random()*5),kol_ratio:+(Math.random()*0.3).toFixed(3),ca_mention_ratio:+(Math.random()*0.5).toFixed(3),total_engagement:50+Math.floor(Math.random()*500),timestamp:new Date(Date.now()-(hh.length?30-j:0)*9e5).toISOString()});}
+    hh.push({heat_score:Math.round(hs*10)/10,mentions:5+Math.floor(Math.random()*60),avg_eng:+(2+Math.random()*40).toFixed(2),kol_count:Math.floor(Math.random()*5),kol_ratio:+(Math.random()*0.3).toFixed(3),ca_mention_ratio:+(Math.random()*0.5).toFixed(3),total_engagement:50+Math.floor(Math.random()*500),timestamp:new Date().toISOString()});
+    const prev=hh.length>1?hh[hh.length-2].heat_score:hs, delta=prev>0?((hs-prev)/prev)*100:0;
+    const ca='So'+Array.from({length:40},()=>'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random()*62)]).join('');
+    return {contract_address:ca,symbol:s,name:s+' Token',fdv,liquidity:liq,volume_24h:vol,holders:500+Math.floor(Math.random()*1e4),price:fdv/(1e9+Math.random()*1e10),price_change_5m:(Math.random()-0.5)*20,price_change_1h:(Math.random()-0.5)*40,price_change_6h:(Math.random()-0.5)*80,price_change_24h:(Math.random()-0.5)*100,age_hours:age,current_heat_score:hs,heat_trend:delta>50?'spike':delta>10?'up':delta<-20?'down':'flat',heat_delta_percent:delta,heat_history:hh,lp_fdv_ratio:liq/fdv,status:'active',security_passed:true,lp_locked:Math.random()>0.2,rugcheck_status:Math.random()>0.3?'Good':'Warning',gmgn_url:'https://gmgn.ai/sol/token/'+ca};
+  });
+}
+
+// ==================== SVG Sparkline ====================
+function sparkSVG(data, w=120, h=32) {
+  if(!data||data.length<2) return '<span style="opacity:0.3;font-size:10px">无数据</span>';
+  const vals=data.map(d=>d.heat_score||0), mn=Math.min(...vals), mx=Math.max(...vals), rng=mx-mn||1, p=2;
+  const pts=vals.map((v,i)=>`${p+i/(vals.length-1)*(w-p*2)},${h-p-((v-mn)/rng)*(h-p*2)}`).join(' ');
+  const last=vals[vals.length-1], prev=vals[Math.max(0,vals.length-2)];
+  const col=last>prev*1.1?'#22c55e':last<prev*0.9?'#ef4444':'#22d3ee';
+  const lx=p+(vals.length-1)/(vals.length-1)*(w-p*2), ly=h-p-((last-mn)/rng)*(h-p*2);
+  const area=`${p},${h-p} ${pts} ${p+(vals.length-1)/(vals.length-1)*(w-p*2)},${h-p}`;
+  return `<svg width="${w}" height="${h}"><polygon points="${area}" fill="${col}" opacity="0.12"/><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${lx}" cy="${ly}" r="2.5" fill="${col}"/></svg>`;
+}
+
+// ==================== Detail Chart SVG ====================
+function detailChartSVG(data, w=560, h=160) {
+  if(!data||data.length<2) return '';
+  const vals=data.map(d=>d.heat_score||0), ments=data.map(d=>d.mentions||0);
+  const mn=Math.min(...vals)*0.8, mx=Math.max(...vals)*1.1, rng=mx-mn||1;
+  const px=50, py=24, pb=36, cw=w-px*2, ch=h-py-pb;
+  const mxM=Math.max(...ments)||1, bw=Math.max(2,Math.min(8,cw/vals.length*0.6));
+  let svg=`<svg width="${w}" height="${h}">`;
+  // grid
+  for(let i=0;i<5;i++){const v=mn+(rng*i/4), y=py+ch-((v-mn)/rng)*ch; svg+=`<line x1="${px}" y1="${y}" x2="${w-px}" y2="${y}" stroke="#1e293b" stroke-width="0.5"/><text x="${px-6}" y="${y+4}" text-anchor="end" fill="#64748b" font-size="10" font-family="monospace">${fN(v)}</text>`;}
+  // bars
+  ments.forEach((m,i)=>{const x=px+i/(vals.length-1)*cw, bh=(m/mxM)*ch*0.4; svg+=`<rect x="${x-bw/2}" y="${py+ch-bh}" width="${bw}" height="${bh}" fill="#3b82f6" opacity="0.15" rx="1"/>`;});
+  // area+line
+  const pts=vals.map((v,i)=>{const x=px+i/(vals.length-1)*cw, y=py+ch-((v-mn)/rng)*ch; return {x,y};});
+  svg+=`<defs><linearGradient id="hg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#22d3ee"/><stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/></linearGradient></defs>`;
+  svg+=`<polygon points="${px},${py+ch} ${pts.map(p=>p.x+','+p.y).join(' ')} ${pts[pts.length-1].x},${py+ch}" fill="url(#hg)" opacity="0.3"/>`;
+  svg+=`<polyline points="${pts.map(p=>p.x+','+p.y).join(' ')}" fill="none" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+  pts.forEach((p,i)=>{const r=i===pts.length-1?4:2, f=i===pts.length-1?'#22d3ee':'#0e7490'; svg+=`<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${f}" stroke="#0c1222" stroke-width="1"/>`;});
+  // time labels
+  data.forEach((d,i)=>{if(i%(Math.max(1,Math.floor(data.length/6)))!==0&&i!==data.length-1)return; const x=px+i/(data.length-1)*cw, t=new Date(d.timestamp); svg+=`<text x="${x}" y="${h-6}" text-anchor="middle" fill="#64748b" font-size="9" font-family="monospace">${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}</text>`;});
+  svg+=`<circle cx="${px+4}" cy="${h-20}" r="3" fill="#22d3ee"/><text x="${px+12}" y="${h-17}" fill="#94a3b8" font-size="9">Heat</text>`;
+  svg+=`<rect x="${px+60}" y="${h-24}" width="8" height="8" fill="#3b82f6" opacity="0.4" rx="1"/><text x="${px+72}" y="${h-17}" fill="#94a3b8" font-size="9">Mentions</text>`;
+  svg+=`</svg>`;
+  return svg;
+}
+
+// ==================== Trend Badge ====================
+function trendBadge(trend, delta) {
+  const cfg={spike:['🔥','SPIKE','trend-spike'],up:['📈','UP','trend-up'],down:['📉','DOWN','trend-down'],flat:['➡️','FLAT','trend-flat']};
+  const c=cfg[trend]||cfg.flat;
+  return `<span class="trend-badge ${c[2]}">${c[0]} ${c[1]} ${delta!==undefined?fP(delta):''}</span>`;
+}
+
+// ==================== Render ====================
+function render() {
+  const s = state;
+  let coins = s.coins.filter(c=>c.status==='active');
+  if(s.filter) coins=coins.filter(c=>c.symbol.toLowerCase().includes(s.filter.toLowerCase())||c.contract_address.toLowerCase().includes(s.filter.toLowerCase()));
+  coins.sort((a,b)=>{const va=a[s.sortField]??0, vb=b[s.sortField]??0; return s.sortAsc?(va>vb?1:-1):(va<vb?1:-1);});
+
+  const thCls=(f)=>s.sortField===f?'active':'';
+  const thArr=(f)=>s.sortField===f?(s.sortAsc?' ↑':' ↓'):'';
+  const sortClick=(f)=>`onclick="toggleSort('${f}')"`;
+
+  let rows='';
+  coins.forEach(c=>{
+    const exp=s.expandedCa===c.contract_address;
+    const caShort=c.contract_address.slice(0,6)+'...'+c.contract_address.slice(-4);
+    const hue=(c.symbol.charCodeAt(0)*37)%360;
+    const gmgn=c.gmgn_url||'https://gmgn.ai/sol/token/'+c.contract_address;
+    const heatCol=c.current_heat_score>3000?'var(--orange)':c.current_heat_score>1000?'var(--cyan)':c.current_heat_score>300?'var(--purple)':'var(--text-3)';
+
+    rows+=`<tr class="coin-row${exp?' expanded':''}" onclick="toggleExpand('${c.contract_address}')">
+      <td class="left"><div class="sym-cell"><div class="sym-icon" style="background:hsl(${hue},60%,25%);border:1px solid hsl(${hue},60%,40%)">${c.symbol.slice(0,2)}</div><div><div class="sym-name">$${c.symbol}</div><div class="sym-tags">${c.rugcheck_status==='Good'?'✅':'⚠️'} ${c.lp_locked?'LP🔒':''}</div></div></div></td>
+      <td style="color:${c.age_hours>20?'var(--yellow)':'var(--text-2)'}">${fAge(c.age_hours)}</td>
+      <td style="color:var(--blue-light)">${fU(c.liquidity)}</td>
+      <td style="font-weight:600">${fU(c.fdv)}</td>
+      <td style="color:${(c.lp_fdv_ratio||0)>0.1?'var(--green)':'var(--yellow)'}">${((c.lp_fdv_ratio||0)*100).toFixed(1)}%</td>
+      <td style="color:var(--purple-light)">${fU(c.volume_24h)}</td>
+      <td style="color:var(--text-2)">${fN(c.holders)}</td>
+      <td style="font-weight:700;font-size:14px;color:${heatCol}">${fN(c.current_heat_score)}</td>
+      <td class="center">${trendBadge(c.heat_trend, c.heat_delta_percent)}</td>
+      <td class="center">${sparkSVG(c.heat_history)}</td>
+      <td><a class="ca-link" href="${gmgn}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${caShort}</a></td>
+      <td class="center"><button class="btn-del" onclick="event.stopPropagation();deleteCoin('${c.contract_address}')">✕</button></td>
+    </tr>`;
+
+    if(exp){
+      const latest=c.heat_history&&c.heat_history.length?c.heat_history[c.heat_history.length-1]:null;
+      const pcs=[['价格','$'+(c.price||0).toFixed(8)],['5m',fP(c.price_change_5m||0)],['1h',fP(c.price_change_1h||0)],['6h',fP(c.price_change_6h||0)],['24h',fP(c.price_change_24h||0)],['LP/FDV',((c.lp_fdv_ratio||0)*100).toFixed(2)+'%'],['安全',c.security_passed?'✅通过':'❌未通过'],['LP锁',c.lp_locked?'🔒是':'🔓否']];
+      let metricsHtml=pcs.map(([l,v])=>{const cls=typeof v==='string'&&v.startsWith('+')?'pos':typeof v==='string'&&v.startsWith('-')?'neg':''; return `<div><div class="metric-label">${l}</div><div class="metric-val ${cls}">${v}</div></div>`;}).join('');
+      let latestHtml='';
+      if(latest){
+        const ls=[['提及',latest.mentions],['平均互动',latest.avg_eng],['KOL',latest.kol_count],['KOL占比',(latest.kol_ratio*100).toFixed(1)+'%'],['总互动',latest.total_engagement],['CA提及率',(latest.ca_mention_ratio*100).toFixed(1)+'%']];
+        latestHtml=`<div style="margin-top:12px" class="metrics-grid"><div style="grid-column:1/-1;font-size:11px;color:var(--text-3);margin-bottom:4px">最新热度 · ${tAgo(latest.timestamp)}</div>${ls.map(([l,v])=>`<div><div class="metric-label">${l}</div><div class="metric-val" style="color:var(--blue-light)">${v}</div></div>`).join('')}</div>`;
+      }
+      const links=[['GMGN',gmgn],['Birdeye',`https://birdeye.so/token/${c.contract_address}?chain=solana`],['DexScreener',`https://dexscreener.com/solana/${c.contract_address}`],['Solscan',`https://solscan.io/token/${c.contract_address}`]];
+      rows+=`<tr class="detail-row"><td colspan="12"><div class="detail-inner">
+        <div class="detail-left"><div class="detail-title">📊 X热度趋势 (每15分钟) <small>${c.heat_history?.length||0} 数据点</small></div><div class="chart-box">${detailChartSVG(c.heat_history||[])}</div></div>
+        <div class="detail-right"><div class="detail-title">📋 实时指标</div><div class="metrics-grid">${metricsHtml}</div>${latestHtml}<div class="links-row">${links.map(([l,u])=>`<a class="ext-link" href="${u}" target="_blank" rel="noopener">${l} ↗</a>`).join('')}</div></div>
+      </div></td></tr>`;
+    }
+  });
+
+  const activeN=coins.length;
+  const connCls=s.connected?'background:rgba(20,83,45,0.25);border:1px solid rgba(22,163,74,0.25)':'background:rgba(120,53,15,0.25);border:1px solid rgba(217,119,6,0.25)';
+  const dotCol=s.connected?'#22c55e':'#f59e0b';
+  const connTxt=s.connected?'已连接':'演示模式';
+  const connTxtCol=s.connected?'#86efac':'#fcd34d';
+
+  document.getElementById('app').innerHTML = `
+    <div class="header">
+      <div class="header-left">
+        <div class="logo">S</div>
+        <div><div class="header-title">SOL 二段监控</div><div class="header-sub">Second Wave Trading Monitor</div></div>
+      </div>
+      <div class="header-right">
+        <input class="search-input" placeholder="搜索 Symbol / CA..." value="${s.filter}" oninput="state.filter=this.value;render()">
+        <div class="status-pill" style="${connCls}"><div class="status-dot" style="background:${dotCol};box-shadow:0 0 6px ${dotCol}80"></div><span style="color:${connTxtCol}">${connTxt}</span></div>
+        <div class="count-pill">监控 <b>${activeN}</b> 个币</div>
+        <button class="btn-add" onclick="state.showModal=true;render()">+ 手动添加</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th class="left ${thCls('symbol')}" ${sortClick('symbol')}>Symbol${thArr('symbol')}</th>
+          <th class="${thCls('age_hours')}" ${sortClick('age_hours')}>Age${thArr('age_hours')}</th>
+          <th class="${thCls('liquidity')}" ${sortClick('liquidity')}>LP${thArr('liquidity')}</th>
+          <th class="${thCls('fdv')}" ${sortClick('fdv')}>FDV${thArr('fdv')}</th>
+          <th class="${thCls('lp_fdv_ratio')}" ${sortClick('lp_fdv_ratio')}>LP/FDV${thArr('lp_fdv_ratio')}</th>
+          <th class="${thCls('volume_24h')}" ${sortClick('volume_24h')}>Volume${thArr('volume_24h')}</th>
+          <th class="${thCls('holders')}" ${sortClick('holders')}>Holders${thArr('holders')}</th>
+          <th class="${thCls('current_heat_score')}" ${sortClick('current_heat_score')}>X热度${thArr('current_heat_score')}</th>
+          <th class="center">趋势</th>
+          <th class="center">热度图</th>
+          <th class="left">合约地址</th>
+          <th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${activeN===0?'<div class="empty"><div class="empty-icon">🔍</div><div style="font-size:14px">暂无监控代币</div><div style="font-size:12px;margin-top:8px;color:var(--border-2)">等待DexScreener自动扫描 或 手动添加</div></div>':''}
+    </div>
+    <div class="footer">
+      <div>DexScreener: 每5min · Birdeye: 每30s · X热度: 每15min</div>
+      <div>退出: FDV&lt;$50K | Age&gt;24h | 连续2次低热度${s.lastUpdate?' · '+s.lastUpdate.toLocaleTimeString():''}</div>
+    </div>
+    ${s.showModal?`<div class="modal-bg" onclick="state.showModal=false;render()"><div class="modal" onclick="event.stopPropagation()">
+      <h3>手动添加代币</h3>
+      <label>合约地址 (CA)</label><input id="m-ca" placeholder="完整合约地址">
+      <label>代币符号</label><input id="m-sym" placeholder="例如: BONK">
+      <div class="modal-actions"><button class="btn-cancel" onclick="state.showModal=false;render()">取消</button><button class="btn-confirm" onclick="doAdd()">添加监控</button></div>
+    </div></div>`:''}
+  `;
+}
+
+// ==================== Event Handlers ====================
+function toggleSort(f) { if(state.sortField===f) state.sortAsc=!state.sortAsc; else { state.sortField=f; state.sortAsc=false; } render(); }
+function toggleExpand(ca) { state.expandedCa=state.expandedCa===ca?null:ca; render(); }
+function doAdd() { const ca=document.getElementById('m-ca').value.trim(), sym=(document.getElementById('m-sym').value.trim()||'???').toUpperCase(); if(ca.length>20) addCoin(ca,sym); }
+
+// ==================== Boot ====================
+fetchCoins();
+setInterval(fetchCoins, POLL_MS);
+</script>
+</body>
+</html>

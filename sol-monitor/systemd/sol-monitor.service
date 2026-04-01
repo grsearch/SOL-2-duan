@@ -1,0 +1,43 @@
+[Unit]
+Description=SOL Second-Wave Trading Monitor
+Documentation=https://github.com/YOUR_USER/sol-monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sol-monitor
+Group=sol-monitor
+
+WorkingDirectory=/opt/sol-monitor
+ExecStart=/opt/sol-monitor/venv/bin/python3 /opt/sol-monitor/monitor.py
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# 环境变量
+EnvironmentFile=/opt/sol-monitor/.env
+
+# 安全加固
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/sol-monitor/data /opt/sol-monitor/logs
+PrivateTmp=yes
+
+# 资源限制
+MemoryMax=512M
+CPUQuota=80%
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sol-monitor
+
+# 优雅关闭
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+/opt/sol-monitor/logs/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    copytruncate
+    su sol-monitor sol-monitor
+}
