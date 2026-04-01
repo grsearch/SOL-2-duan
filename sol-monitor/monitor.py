@@ -169,6 +169,9 @@ class MonitoredCoin:
     rugcheck_status: str = ""
     birdeye_security: dict = field(default_factory=dict)
 
+    # FDV历史 (与heat_history对齐, 每次X热度更新时记录)
+    fdv_history: List[dict] = field(default_factory=list)
+
     # X热度
     heat_history: List[dict] = field(default_factory=list)
     current_heat_score: float = 0.0
@@ -224,10 +227,12 @@ class SolMonitor:
                     data = json.load(f)
                 for ca, cd in data.get("coins", {}).items():
                     hh = cd.pop("heat_history", [])
+                    fh = cd.pop("fdv_history", [])
                     for k in ("lp_fdv_ratio", "gmgn_url", "birdeye_url"):
                         cd.pop(k, None)
                     coin = MonitoredCoin(**cd)
                     coin.heat_history = hh
+                    coin.fdv_history = fh
                     if coin.status == "active":
                         self.coins[ca] = coin
                 logger.info("已加载 %d 个活跃监控币", len(self.coins))
@@ -395,7 +400,7 @@ class SolMonitor:
                         continue
                     td = (await resp.json()).get("data", {})
                     coin.price = float(td.get("price", 0) or 0)
-                    coin.fdv = float(td.get("mc", 0) or 0)
+                    coin.fdv = float(td.get("fdv", 0) or td.get("mc", 0) or 0)
                     coin.liquidity = float(td.get("liquidity", 0) or 0)
                     coin.volume_24h = float(td.get("v24hUSD", 0) or 0)
                     coin.holders = int(td.get("holder", 0) or 0)
@@ -434,6 +439,18 @@ class SolMonitor:
             if len(coin.heat_history) > self.config.MAX_HEAT_HISTORY:
                 coin.heat_history.pop(0)
 
+            # 同步记录FDV快照 (与heat_history时间对齐, 方便前端叠加对比)
+            coin.fdv_history.append({
+                "fdv": coin.fdv,
+                "liquidity": coin.liquidity,
+                "volume_24h": coin.volume_24h,
+                "holders": coin.holders,
+                "price": coin.price,
+                "timestamp": heat.timestamp,
+            })
+            if len(coin.fdv_history) > self.config.MAX_HEAT_HISTORY:
+                coin.fdv_history.pop(0)
+
             old = coin.current_heat_score
             coin.current_heat_score = heat.heat_score
             coin.heat_delta_percent = ((heat.heat_score - old) / old * 100) if old > 0 else (100 if heat.heat_score > 0 else 0)
@@ -461,7 +478,7 @@ class SolMonitor:
     async def _fetch_tweets(self, coin: MonitoredCoin):
         headers = {"Authorization": f"Bearer {self.config.X_BEARER_TOKEN}"}
         ca_short = coin.contract_address[:20]
-        query = f'(${coin.symbol} OR "{ca_short}") lang:en -is:reply -is:retweet min_faves:3'
+        query = f'(${coin.symbol} OR "{ca_short}") lang:en -is:reply -is:retweet'
         params = {
             "query": query, "max_results": 100,
             "tweet.fields": "public_metrics,created_at,author_id",
@@ -537,6 +554,20 @@ class SolMonitor:
         coin.heat_history.append(h.to_dict())
         if len(coin.heat_history) > self.config.MAX_HEAT_HISTORY:
             coin.heat_history.pop(0)
+        # 同步模拟FDV历史
+        mock_fdv = coin.fdv if coin.fdv > 0 else random.randint(200000, 5000000)
+        if coin.fdv_history:
+            mock_fdv = coin.fdv_history[-1].get("fdv", mock_fdv) * (1 + random.uniform(-0.08, 0.12))
+        coin.fdv_history.append({
+            "fdv": round(mock_fdv, 0),
+            "liquidity": coin.liquidity,
+            "volume_24h": coin.volume_24h,
+            "holders": coin.holders,
+            "price": coin.price,
+            "timestamp": h.timestamp,
+        })
+        if len(coin.fdv_history) > self.config.MAX_HEAT_HISTORY:
+            coin.fdv_history.pop(0)
         coin.current_heat_score = h.heat_score
         coin.heat_delta_percent = ((h.heat_score - old) / old * 100) if old > 0 else 0
         if coin.heat_delta_percent > self.config.HEAT_SPIKE_PERCENT:

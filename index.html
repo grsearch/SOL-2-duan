@@ -202,6 +202,7 @@ function norm(c){
     age_hours:N(c.age_hours), current_heat_score:N(c.current_heat_score),
     heat_trend:c.heat_trend||'flat', heat_delta_percent:N(c.heat_delta_percent),
     heat_history:Array.isArray(c.heat_history)?c.heat_history:[],
+    fdv_history:Array.isArray(c.fdv_history)?c.fdv_history:[],
     lp_fdv_ratio:N(c.lp_fdv_ratio||(N(c.fdv)>0?N(c.liquidity)/N(c.fdv):0)),
     status:c.status||'active', security_passed:!!c.security_passed,
     lp_locked:!!c.lp_locked, rugcheck_status:c.rugcheck_status||'',
@@ -250,9 +251,12 @@ function mock(){
       hh.push({heat_score:+p.toFixed(1),mentions:5+(Math.random()*60|0),avg_eng:+(2+Math.random()*40).toFixed(2),kol_count:(Math.random()*5|0),kol_ratio:+(Math.random()*.3).toFixed(3),ca_mention_ratio:+(Math.random()*.5).toFixed(3),total_engagement:50+(Math.random()*500|0),timestamp:new Date(Date.now()-(len-j)*9e5).toISOString()});
     }
     hh.push({heat_score:+hs.toFixed(1),mentions:5+(Math.random()*60|0),avg_eng:+(2+Math.random()*40).toFixed(2),kol_count:(Math.random()*5|0),kol_ratio:+(Math.random()*.3).toFixed(3),ca_mention_ratio:+(Math.random()*.5).toFixed(3),total_engagement:50+(Math.random()*500|0),timestamp:new Date().toISOString()});
+    // 生成FDV历史 (与hh对齐)
+    var fh=[], mfdv=fdv*.4, mhold=300+Math.random()*2000;
+    for(var fi=0;fi<hh.length;fi++){mfdv=Math.max(50000,mfdv*(1+((Math.random()-.42)*.15)));mhold=Math.max(50,mhold*(1+(Math.random()-.35)*.08));fh.push({fdv:Math.round(mfdv),holders:Math.round(mhold),timestamp:hh[fi].timestamp});}
     var pv=hh.length>1?hh[hh.length-2].heat_score:hs, dt=pv>0?((hs-pv)/pv)*100:0;
     var ca='So';for(var k=0;k<40;k++)ca+='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'[Math.random()*56|0];
-    out.push(norm({contract_address:ca,symbol:s,name:s+' Token',fdv:fdv,liquidity:liq,volume_24h:vol,holders:500+(Math.random()*1e4|0),price:fdv/(1e9+Math.random()*1e10),price_change_5m:(Math.random()-.5)*20,price_change_1h:(Math.random()-.5)*40,price_change_6h:(Math.random()-.5)*80,price_change_24h:(Math.random()-.5)*100,age_hours:age,current_heat_score:hs,heat_trend:dt>50?'spike':dt>10?'up':dt<-20?'down':'flat',heat_delta_percent:dt,heat_history:hh,lp_fdv_ratio:liq/fdv,status:'active',security_passed:true,lp_locked:Math.random()>.2,rugcheck_status:Math.random()>.3?'Good':'Warning'}));
+    out.push(norm({contract_address:ca,symbol:s,name:s+' Token',fdv:fdv,liquidity:liq,volume_24h:vol,holders:500+(Math.random()*1e4|0),price:fdv/(1e9+Math.random()*1e10),price_change_5m:(Math.random()-.5)*20,price_change_1h:(Math.random()-.5)*40,price_change_6h:(Math.random()-.5)*80,price_change_24h:(Math.random()-.5)*100,age_hours:age,current_heat_score:hs,heat_trend:dt>50?'spike':dt>10?'up':dt<-20?'down':'flat',heat_delta_percent:dt,heat_history:hh,fdv_history:fh,lp_fdv_ratio:liq/fdv,status:'active',security_passed:true,lp_locked:Math.random()>.2,rugcheck_status:Math.random()>.3?'Good':'Warning'}));
   }
   return out;
 }
@@ -281,31 +285,144 @@ function spark(data, w, h){
   return '<svg width="'+w+'" height="'+h+'" style="display:block"><polygon points="'+area+'" fill="'+col+'" opacity="0.12"/><polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="'+lx+'" cy="'+ly+'" r="2.5" fill="'+col+'"/></svg>';
 }
 
-// ===== Detail chart =====
-function dchart(data,w,h){
-  w=w||540; h=h||150;
+// ===== Detail chart: Heat + FDV + Holders =====
+function dchart(data, fdvData, w, h){
+  w=w||600; h=h||200;
   if(!data||data.length<2) return '<div style="padding:20px;text-align:center;color:#475569;font-size:11px">热度数据不足, 等待更多更新...</div>';
-  var vals=[],ments=[],i;
-  for(i=0;i<data.length;i++){vals.push(N(data[i].heat_score));ments.push(N(data[i].mentions));}
-  var mn=vals[0],mx=vals[0];
-  for(i=1;i<vals.length;i++){if(vals[i]<mn)mn=vals[i];if(vals[i]>mx)mx=vals[i];}
-  mn*=.8; mx*=1.1; var rg=mx-mn||1;
-  var px=46,py=20,pb=32,cw=w-px*2,ch=h-py-pb;
-  var mxM=ments[0];for(i=1;i<ments.length;i++)if(ments[i]>mxM)mxM=ments[i];mxM=mxM||1;
-  var bw=Math.max(2,Math.min(7,cw/vals.length*.6));
+  var i, n=data.length;
+
+  // --- Heat data (left Y, cyan) ---
+  var hVals=[], ments=[];
+  for(i=0;i<n;i++){hVals.push(N(data[i].heat_score));ments.push(N(data[i].mentions));}
+  var hMn=hVals[0],hMx=hVals[0];
+  for(i=1;i<n;i++){if(hVals[i]<hMn)hMn=hVals[i];if(hVals[i]>hMx)hMx=hVals[i];}
+  hMn*=.8; hMx*=1.1; var hRg=hMx-hMn||1;
+
+  // --- FDV data (right Y, orange dashed) ---
+  var hasFdv=fdvData&&fdvData.length>=2;
+  var fVals=[], holdVals=[];
+  if(hasFdv){for(i=0;i<fdvData.length;i++){fVals.push(N(fdvData[i].fdv));holdVals.push(N(fdvData[i].holders));}}
+  var fMn=0,fMx=0,fRg=1;
+  if(fVals.length>=2){
+    fMn=fVals[0];fMx=fVals[0];
+    for(i=1;i<fVals.length;i++){if(fVals[i]<fMn)fMn=fVals[i];if(fVals[i]>fMx)fMx=fVals[i];}
+    fMn*=.9; fMx*=1.1; fRg=fMx-fMn||1;
+  }
+
+  // --- Holders data (own scale, green dotted) ---
+  var hasHold=holdVals.length>=2;
+  var hdMn=0,hdMx=0,hdRg=1;
+  if(hasHold){
+    hdMn=holdVals[0];hdMx=holdVals[0];
+    for(i=1;i<holdVals.length;i++){if(holdVals[i]<hdMn)hdMn=holdVals[i];if(holdVals[i]>hdMx)hdMx=holdVals[i];}
+    hdMn*=.9; hdMx*=1.1; hdRg=hdMx-hdMn||1;
+  }
+
+  // --- Layout ---
+  var pxL=48, pxR=hasFdv?56:20, py=22, pb=38;
+  var cw=w-pxL-pxR, ch=h-py-pb;
+  var mxM=ments[0];for(i=1;i<n;i++)if(ments[i]>mxM)mxM=ments[i];mxM=mxM||1;
+  var bw=Math.max(2,Math.min(7,cw/n*.6));
+  var gid='hg'+Math.random().toString(36).slice(2,7);
+
   var o='<svg width="'+w+'" height="'+h+'" style="display:block">';
-  for(i=0;i<5;i++){var v=mn+(rg*i/4),y=py+ch-((v-mn)/rg)*ch;o+='<line x1="'+px+'" y1="'+y.toFixed(1)+'" x2="'+(w-px)+'" y2="'+y.toFixed(1)+'" stroke="#1e293b" stroke-width="0.5"/><text x="'+(px-5)+'" y="'+(y+3).toFixed(1)+'" text-anchor="end" fill="#64748b" font-size="9" font-family="monospace">'+fN(v)+'</text>';}
-  for(i=0;i<ments.length;i++){var x=px+(i/(vals.length-1))*cw,bh=(ments[i]/mxM)*ch*.35;o+='<rect x="'+(x-bw/2).toFixed(1)+'" y="'+(py+ch-bh).toFixed(1)+'" width="'+bw+'" height="'+bh.toFixed(1)+'" fill="#3b82f6" opacity="0.15" rx="1"/>';}
-  var pts=[];for(i=0;i<vals.length;i++){pts.push({x:px+(i/(vals.length-1))*cw, y:py+ch-((vals[i]-mn)/rg)*ch});}
-  o+='<defs><linearGradient id="hg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#22d3ee"/><stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/></linearGradient></defs>';
-  var pstr='';for(i=0;i<pts.length;i++){if(i>0)pstr+=' ';pstr+=pts[i].x.toFixed(1)+','+pts[i].y.toFixed(1);}
-  o+='<polygon points="'+px+','+(py+ch)+' '+pstr+' '+pts[pts.length-1].x.toFixed(1)+','+(py+ch)+'" fill="url(#hg)" opacity="0.3"/>';
-  o+='<polyline points="'+pstr+'" fill="none" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
-  for(i=0;i<pts.length;i++){var r=i===pts.length-1?3.5:1.5,f=i===pts.length-1?'#22d3ee':'#0e7490';o+='<circle cx="'+pts[i].x.toFixed(1)+'" cy="'+pts[i].y.toFixed(1)+'" r="'+r+'" fill="'+f+'" stroke="#0c1222" stroke-width="0.8"/>';}
-  var step=Math.max(1,Math.floor(data.length/6));
-  for(i=0;i<data.length;i++){if(i%step!==0&&i!==data.length-1)continue;var tx=px+(i/(data.length-1))*cw,t=new Date(data[i].timestamp),hr=String(t.getHours()).padStart(2,'0'),mi=String(t.getMinutes()).padStart(2,'0');o+='<text x="'+tx.toFixed(1)+'" y="'+(h-5)+'" text-anchor="middle" fill="#64748b" font-size="8" font-family="monospace">'+hr+':'+mi+'</text>';}
-  o+='<circle cx="'+(px+3)+'" cy="'+(h-18)+'" r="2.5" fill="#22d3ee"/><text x="'+(px+10)+'" y="'+(h-15)+'" fill="#94a3b8" font-size="8">Heat</text>';
-  o+='<rect x="'+(px+55)+'" y="'+(h-21)+'" width="7" height="7" fill="#3b82f6" opacity="0.4" rx="1"/><text x="'+(px+66)+'" y="'+(h-15)+'" fill="#94a3b8" font-size="8">Mentions</text>';
+  o+='<defs><linearGradient id="'+gid+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#22d3ee"/><stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/></linearGradient></defs>';
+
+  // --- Grid lines (heat Y left) ---
+  for(i=0;i<5;i++){
+    var v=hMn+(hRg*i/4), y=py+ch-((v-hMn)/hRg)*ch;
+    o+='<line x1="'+pxL+'" y1="'+y.toFixed(1)+'" x2="'+(w-pxR)+'" y2="'+y.toFixed(1)+'" stroke="#1e293b" stroke-width="0.5"/>';
+    o+='<text x="'+(pxL-5)+'" y="'+(y+3).toFixed(1)+'" text-anchor="end" fill="#0ea5e9" font-size="8" font-family="monospace">'+fN(v)+'</text>';
+  }
+
+  // --- Right Y-axis labels (FDV) ---
+  if(hasFdv){
+    for(i=0;i<5;i++){
+      var fv=fMn+(fRg*i/4), fy=py+ch-((fv-fMn)/fRg)*ch;
+      o+='<text x="'+(w-pxR+5)+'" y="'+(fy+3).toFixed(1)+'" text-anchor="start" fill="#f97316" font-size="8" font-family="monospace">'+fU(fv)+'</text>';
+    }
+    o+='<line x1="'+(w-pxR)+'" y1="'+py+'" x2="'+(w-pxR)+'" y2="'+(py+ch)+'" stroke="#f9731630" stroke-width="1"/>';
+  }
+
+  // --- Mention bars (background) ---
+  for(i=0;i<n;i++){
+    var bx=pxL+(i/(n-1))*cw, bh2=(ments[i]/mxM)*ch*.25;
+    o+='<rect x="'+(bx-bw/2).toFixed(1)+'" y="'+(py+ch-bh2).toFixed(1)+'" width="'+bw+'" height="'+bh2.toFixed(1)+'" fill="#3b82f6" opacity="0.12" rx="1"/>';
+  }
+
+  // --- Align helper for fdv/holders arrays (right-align to heat timeline) ---
+  var fLen=hasFdv?Math.min(fVals.length,n):0;
+  var fOff=hasFdv?fVals.length-fLen:0;
+  var hOff2=n-fLen;
+
+  // --- Holders curve (green dotted, draw first = bottom layer) ---
+  if(hasHold&&fLen>=2){
+    var hdPts=[];
+    for(i=0;i<fLen;i++){
+      var hx=pxL+((hOff2+i)/(n-1))*cw;
+      var hy=py+ch-((holdVals[fOff+i]-hdMn)/hdRg)*ch;
+      hdPts.push({x:hx,y:hy});
+    }
+    var hdStr='';for(i=0;i<hdPts.length;i++){if(i>0)hdStr+=' ';hdStr+=hdPts[i].x.toFixed(1)+','+hdPts[i].y.toFixed(1);}
+    o+='<polyline points="'+hdStr+'" fill="none" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2,3" opacity="0.55"/>';
+    var hdLast=hdPts[hdPts.length-1];
+    o+='<circle cx="'+hdLast.x.toFixed(1)+'" cy="'+hdLast.y.toFixed(1)+'" r="2.5" fill="#22c55e" stroke="#0c1222" stroke-width="0.8" opacity="0.7"/>';
+  }
+
+  // --- FDV curve (orange dashed) ---
+  if(hasFdv&&fLen>=2){
+    var fPts=[];
+    for(i=0;i<fLen;i++){
+      var fx=pxL+((hOff2+i)/(n-1))*cw;
+      var fy2=py+ch-((fVals[fOff+i]-fMn)/fRg)*ch;
+      fPts.push({x:fx,y:fy2});
+    }
+    var fPstr='';for(i=0;i<fPts.length;i++){if(i>0)fPstr+=' ';fPstr+=fPts[i].x.toFixed(1)+','+fPts[i].y.toFixed(1);}
+    o+='<polygon points="'+fPts[0].x.toFixed(1)+','+(py+ch)+' '+fPstr+' '+fPts[fPts.length-1].x.toFixed(1)+','+(py+ch)+'" fill="#f97316" opacity="0.06"/>';
+    o+='<polyline points="'+fPstr+'" fill="none" stroke="#f97316" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4,3" opacity="0.7"/>';
+    var flast=fPts[fPts.length-1];
+    o+='<circle cx="'+flast.x.toFixed(1)+'" cy="'+flast.y.toFixed(1)+'" r="3" fill="#f97316" stroke="#0c1222" stroke-width="1" opacity="0.8"/>';
+  }
+
+  // --- Heat Score curve (cyan solid, top layer) ---
+  var hPts=[];
+  for(i=0;i<n;i++){hPts.push({x:pxL+(i/(n-1))*cw, y:py+ch-((hVals[i]-hMn)/hRg)*ch});}
+  var hPstr='';for(i=0;i<hPts.length;i++){if(i>0)hPstr+=' ';hPstr+=hPts[i].x.toFixed(1)+','+hPts[i].y.toFixed(1);}
+  o+='<polygon points="'+pxL+','+(py+ch)+' '+hPstr+' '+hPts[hPts.length-1].x.toFixed(1)+','+(py+ch)+'" fill="url(#'+gid+')" opacity="0.25"/>';
+  o+='<polyline points="'+hPstr+'" fill="none" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+  for(i=0;i<hPts.length;i++){
+    var cr=i===hPts.length-1?3.5:1.5, cf=i===hPts.length-1?'#22d3ee':'#0e7490';
+    o+='<circle cx="'+hPts[i].x.toFixed(1)+'" cy="'+hPts[i].y.toFixed(1)+'" r="'+cr+'" fill="'+cf+'" stroke="#0c1222" stroke-width="0.8"/>';
+  }
+
+  // --- Time labels ---
+  var step=Math.max(1,Math.floor(n/7));
+  for(i=0;i<n;i++){
+    if(i%step!==0&&i!==n-1)continue;
+    var tx=pxL+(i/(n-1))*cw, t=new Date(data[i].timestamp);
+    var thr=String(t.getHours()).padStart(2,'0'), tmi=String(t.getMinutes()).padStart(2,'0');
+    o+='<text x="'+tx.toFixed(1)+'" y="'+(h-5)+'" text-anchor="middle" fill="#64748b" font-size="8" font-family="monospace">'+thr+':'+tmi+'</text>';
+  }
+
+  // --- Legend (two rows if needed) ---
+  var lgX=pxL+3, lgY=h-20;
+  o+='<circle cx="'+lgX+'" cy="'+lgY+'" r="2.5" fill="#22d3ee"/>';
+  o+='<text x="'+(lgX+7)+'" y="'+(lgY+3)+'" fill="#94a3b8" font-size="7.5">Heat</text>';
+
+  o+='<rect x="'+(lgX+38)+'" y="'+(lgY-3.5)+'" width="6" height="6" fill="#3b82f6" opacity="0.35" rx="1"/>';
+  o+='<text x="'+(lgX+48)+'" y="'+(lgY+3)+'" fill="#94a3b8" font-size="7.5">Mentions</text>';
+
+  if(hasFdv){
+    o+='<line x1="'+(lgX+103)+'" y1="'+lgY+'" x2="'+(lgX+116)+'" y2="'+lgY+'" stroke="#f97316" stroke-width="1.8" stroke-dasharray="3,2" opacity="0.7"/>';
+    o+='<text x="'+(lgX+120)+'" y="'+(lgY+3)+'" fill="#f97316" font-size="7.5" opacity="0.85">FDV</text>';
+  }
+
+  if(hasHold){
+    var hlgX=hasFdv?(lgX+145):(lgX+103);
+    o+='<line x1="'+hlgX+'" y1="'+lgY+'" x2="'+(hlgX+12)+'" y2="'+lgY+'" stroke="#22c55e" stroke-width="1.5" stroke-dasharray="2,2" opacity="0.6"/>';
+    o+='<text x="'+(hlgX+16)+'" y="'+(lgY+3)+'" fill="#22c55e" font-size="7.5" opacity="0.8">Holders</text>';
+  }
+
   return o+'</svg>';
 }
 
@@ -366,7 +483,7 @@ function draw(){
       var lnkH='';for(j=0;j<lnks.length;j++) lnkH+='<a class="elink" href="'+E(lnks[j][1])+'" target="_blank" rel="noopener">'+lnks[j][0]+' \u2197</a>';
 
       rows+='<tr class="drow"><td colspan="12"><div class="din">'
-        +'<div class="dleft"><div class="dtit">\ud83d\udcca X热度趋势 (每15分钟) <small>'+c.heat_history.length+' 数据点</small></div><div class="cbox">'+dchart(c.heat_history)+'</div></div>'
+        +'<div class="dleft"><div class="dtit">\ud83d\udcca X热度 vs FDV 趋势 (每15分钟) <small>'+c.heat_history.length+' 数据点</small></div><div class="cbox">'+dchart(c.heat_history, c.fdv_history)+'</div></div>'
         +'<div class="dright"><div class="dtit">\ud83d\udccb 实时指标</div><div class="mgrid">'+mg+'</div>'+lh+'<div class="lrow">'+lnkH+'</div></div>'
         +'</div></td></tr>';
     }
