@@ -411,6 +411,31 @@ class SolMonitor:
                     if coin.created_at:
                         created = datetime.fromisoformat(coin.created_at.replace("Z", "+00:00"))
                         coin.age_hours = (datetime.now(timezone.utc) - created).total_seconds() / 3600
+
+                    # 每5分钟采样一次FDV/Holders快照(30s轮询但不是每次都记)
+                    now_ts = datetime.now(timezone.utc).isoformat()
+                    should_sample = True
+                    if coin.fdv_history:
+                        last_ts = coin.fdv_history[-1].get("timestamp", "")
+                        if last_ts:
+                            try:
+                                elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(
+                                    last_ts.replace("Z", "+00:00"))).total_seconds()
+                                should_sample = elapsed >= 300  # 5分钟
+                            except Exception:
+                                pass
+                    if should_sample and coin.fdv > 0:
+                        coin.fdv_history.append({
+                            "fdv": coin.fdv,
+                            "liquidity": coin.liquidity,
+                            "volume_24h": coin.volume_24h,
+                            "holders": coin.holders,
+                            "price": coin.price,
+                            "timestamp": now_ts,
+                        })
+                        if len(coin.fdv_history) > self.config.MAX_HEAT_HISTORY * 3:
+                            coin.fdv_history.pop(0)
+
                 await asyncio.sleep(0.2)
             except Exception as e:
                 logger.error("Birdeye轮询 %s 失败: %s", coin.symbol, e)
@@ -439,16 +464,24 @@ class SolMonitor:
             if len(coin.heat_history) > self.config.MAX_HEAT_HISTORY:
                 coin.heat_history.pop(0)
 
-            # 同步记录FDV快照 (与heat_history时间对齐, 方便前端叠加对比)
-            coin.fdv_history.append({
-                "fdv": coin.fdv,
-                "liquidity": coin.liquidity,
-                "volume_24h": coin.volume_24h,
-                "holders": coin.holders,
-                "price": coin.price,
-                "timestamp": heat.timestamp,
-            })
-            if len(coin.fdv_history) > self.config.MAX_HEAT_HISTORY:
+            # 同步记录FDV快照 (避免与Birdeye轮询重复，检查间隔)
+            _should_rec = True
+            if coin.fdv_history:
+                try:
+                    _last = datetime.fromisoformat(coin.fdv_history[-1].get("timestamp","").replace("Z","+00:00"))
+                    _should_rec = (datetime.now(timezone.utc) - _last).total_seconds() >= 120
+                except Exception:
+                    pass
+            if _should_rec and coin.fdv > 0:
+                coin.fdv_history.append({
+                    "fdv": coin.fdv,
+                    "liquidity": coin.liquidity,
+                    "volume_24h": coin.volume_24h,
+                    "holders": coin.holders,
+                    "price": coin.price,
+                    "timestamp": heat.timestamp,
+                })
+            if len(coin.fdv_history) > self.config.MAX_HEAT_HISTORY * 3:
                 coin.fdv_history.pop(0)
 
             old = coin.current_heat_score

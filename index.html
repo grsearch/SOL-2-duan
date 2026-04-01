@@ -302,6 +302,8 @@ function dchart(data, fdvData, w, h){
   var hasFdv=fdvData&&fdvData.length>=2;
   var fVals=[], holdVals=[];
   if(hasFdv){for(i=0;i<fdvData.length;i++){fVals.push(N(fdvData[i].fdv));holdVals.push(N(fdvData[i].holders));}}
+  // check at least 2 nonzero FDV values
+  if(hasFdv){var fNz=0;for(i=0;i<fVals.length;i++)if(fVals[i]>0)fNz++;hasFdv=fNz>=2;}
   var fMn=0,fMx=0,fRg=1;
   if(fVals.length>=2){
     fMn=fVals[0];fMx=fVals[0];
@@ -310,11 +312,18 @@ function dchart(data, fdvData, w, h){
   }
 
   // --- Holders data (own scale, green dotted) ---
-  var hasHold=holdVals.length>=2;
+  // filter out zero-holders entries (old fdv_history might not have holders)
+  var hasHold=false;
+  if(holdVals.length>=2){
+    var nonZero=0;for(i=0;i<holdVals.length;i++)if(holdVals[i]>0)nonZero++;
+    hasHold=nonZero>=2;
+  }
   var hdMn=0,hdMx=0,hdRg=1;
   if(hasHold){
-    hdMn=holdVals[0];hdMx=holdVals[0];
-    for(i=1;i<holdVals.length;i++){if(holdVals[i]<hdMn)hdMn=holdVals[i];if(holdVals[i]>hdMx)hdMx=holdVals[i];}
+    // find first nonzero for min init
+    hdMn=1e15;hdMx=0;
+    for(i=0;i<holdVals.length;i++){if(holdVals[i]>0){if(holdVals[i]<hdMn)hdMn=holdVals[i];if(holdVals[i]>hdMx)hdMx=holdVals[i];}}
+    if(hdMn>=hdMx)hdMn=hdMx*.8;
     hdMn*=.9; hdMx*=1.1; hdRg=hdMx-hdMn||1;
   }
 
@@ -359,14 +368,18 @@ function dchart(data, fdvData, w, h){
   if(hasHold&&fLen>=2){
     var hdPts=[];
     for(i=0;i<fLen;i++){
+      var hv=holdVals[fOff+i];
+      if(hv<=0) continue; // skip zero entries
       var hx=pxL+((hOff2+i)/(n-1))*cw;
-      var hy=py+ch-((holdVals[fOff+i]-hdMn)/hdRg)*ch;
+      var hy=py+ch-((hv-hdMn)/hdRg)*ch;
       hdPts.push({x:hx,y:hy});
     }
-    var hdStr='';for(i=0;i<hdPts.length;i++){if(i>0)hdStr+=' ';hdStr+=hdPts[i].x.toFixed(1)+','+hdPts[i].y.toFixed(1);}
-    o+='<polyline points="'+hdStr+'" fill="none" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2,3" opacity="0.55"/>';
-    var hdLast=hdPts[hdPts.length-1];
-    o+='<circle cx="'+hdLast.x.toFixed(1)+'" cy="'+hdLast.y.toFixed(1)+'" r="2.5" fill="#22c55e" stroke="#0c1222" stroke-width="0.8" opacity="0.7"/>';
+    if(hdPts.length>=2){
+      var hdStr='';for(i=0;i<hdPts.length;i++){if(i>0)hdStr+=' ';hdStr+=hdPts[i].x.toFixed(1)+','+hdPts[i].y.toFixed(1);}
+      o+='<polyline points="'+hdStr+'" fill="none" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2,3" opacity="0.6"/>';
+      var hdLast=hdPts[hdPts.length-1];
+      o+='<circle cx="'+hdLast.x.toFixed(1)+'" cy="'+hdLast.y.toFixed(1)+'" r="2.5" fill="#22c55e" stroke="#0c1222" stroke-width="0.8" opacity="0.75"/>';
+    }
   }
 
   // --- FDV curve (orange dashed) ---
